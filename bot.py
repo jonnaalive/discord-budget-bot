@@ -30,6 +30,9 @@ logger = logging.getLogger(__name__)
 DISCORD_BOT_TOKEN = os.getenv('DISCORD_BOT_TOKEN')
 GOOGLE_SHEET_ID = os.getenv('GOOGLE_SHEET_ID')
 GOOGLE_SHEET_NAME = os.getenv('GOOGLE_SHEET_NAME')
+FAMILY_SHEET_ID = os.getenv('FAMILY_SHEET_ID')
+FAMILY_SHEET_NAME = os.getenv('FAMILY_SHEET_NAME')
+FAMILY_CHANNEL_NAME = os.getenv('FAMILY_CHANNEL_NAME', 'family-budget')
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 
 
@@ -39,8 +42,17 @@ class BudgetBot(commands.Bot):
         intents.message_content = True
         super().__init__(command_prefix='!', intents=intents, help_command=None)
 
+        # 개인 가계부 시트
         self.sheets_manager = GoogleSheetsManager(GOOGLE_SHEET_ID, GOOGLE_SHEET_NAME)
+        # 가족 가계부 시트
+        self.family_sheets_manager = GoogleSheetsManager(FAMILY_SHEET_ID, FAMILY_SHEET_NAME)
         self.ai_classifier = AIClassifier(OPENAI_API_KEY)
+
+    def get_sheets_manager(self, channel_name: str) -> GoogleSheetsManager:
+        """채널 이름에 따라 적절한 시트 매니저 반환"""
+        if channel_name == FAMILY_CHANNEL_NAME:
+            return self.family_sheets_manager
+        return self.sheets_manager
 
     def parse_message(self, text: str) -> dict:
         """
@@ -111,15 +123,29 @@ class BudgetBot(commands.Bot):
         # 현재 날짜
         current_date = datetime.now().strftime('%Y-%m-%d')
 
-        # 구글 시트에 데이터 추가
+        # 채널에 맞는 시트 매니저 선택
+        sheets = self.get_sheets_manager(message.channel.name)
+        is_family = message.channel.name == FAMILY_CHANNEL_NAME
+
+        # 채널별 다른 시트 구조로 데이터 추가
         try:
-            self.sheets_manager.append_row([
-                current_date,  # A열: 입력 날짜
-                amount,        # B열: 금액
-                item_name,     # C열: 품목명
-                category,      # D열: 대분류
-                necessity      # E열: 필수 여부
-            ])
+            if is_family:
+                # 가족 시트: A-날짜, B-소비형태(대분류), C-종류(품목명), D-가격
+                sheets.append_row([
+                    current_date,
+                    category,
+                    item_name,
+                    amount,
+                ])
+            else:
+                # 개인 시트: A-날짜, B-금액, C-품목명, D-대분류, E-필수여부
+                sheets.append_row([
+                    current_date,
+                    amount,
+                    item_name,
+                    category,
+                    necessity,
+                ])
 
             # 성공 메시지
             await message.channel.send(
@@ -127,8 +153,8 @@ class BudgetBot(commands.Bot):
                 f"📅 날짜: {current_date}\n"
                 f"💰 금액: {amount:,}원\n"
                 f"🛒 품목: {item_name}\n"
-                f"📁 대분류: {category}\n"
-                f"⚡ 필수여부: {necessity}"
+                f"📁 대분류: {category}"
+                + (f"\n⚡ 필수여부: {necessity}" if not is_family else "")
             )
 
             logger.info(f"Successfully recorded: {item_name} - {amount}원")

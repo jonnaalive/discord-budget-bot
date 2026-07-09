@@ -60,8 +60,9 @@ class GoogleSheetsManager:
                 'values': [values]
             }
 
-            # 시트 이름에 특수문자나 공백이 있을 경우 작은따옴표로 감싸기
-            range_name = f"'{self.sheet_name}'!A:E"
+            # 값 개수에 맞춰 범위 자동 설정
+            last_col = chr(ord('A') + len(values) - 1)
+            range_name = f"'{self.sheet_name}'!A:{last_col}"
 
             result = self.service.spreadsheets().values().append(
                 spreadsheetId=self.spreadsheet_id,
